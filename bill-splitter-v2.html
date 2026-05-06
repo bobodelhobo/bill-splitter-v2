@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bill Splitter Pro</title>
+
+<style>
+body { font-family: Arial; background:#f4f6f8; padding:20px; }
+.container { max-width:800px; margin:auto; background:white; padding:20px; border-radius:12px; }
+
+h1,h2 { margin-top:20px; }
+
+input,button {
+  padding:10px;
+  margin:5px 0;
+  width:100%;
+}
+
+button {
+  background:#007bff;
+  color:white;
+  border:none;
+  border-radius:6px;
+  cursor:pointer;
+}
+
+button:hover { background:#0056b3; }
+
+.delete-btn { background:#dc3545; }
+.edit-btn { background:#ffc107; color:black; }
+
+.row {
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.row button { width:auto; }
+
+.person,.item {
+  padding:8px;
+  border-bottom:1px solid #eee;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+.result-box {
+  border:1px solid #ddd;
+  padding:10px;
+  margin-top:10px;
+  border-radius:8px;
+}
+
+.small { font-size:12px; color:#555; }
+</style>
+</head>
+
+<body>
+
+<div class="container">
+<h1>Bill Splitter Pro</h1>
+
+<h2>People</h2>
+<input id="personName" placeholder="Enter name">
+<button onclick="addPerson()">Add Person</button>
+<div id="peopleList"></div>
+
+<h2>Add / Edit Item</h2>
+<input id="itemName" placeholder="Item name">
+<input id="itemPrice" type="number" placeholder="Price">
+
+<div id="assignPeople"></div>
+
+<button onclick="selectAll()">Select All</button>
+<button onclick="saveItem()">Save Item</button>
+
+<h2>Items</h2>
+<div id="itemsList"></div>
+
+<h2>Charges</h2>
+<label>Service Charge (%)</label>
+<input id="service" type="number" value="10">
+
+<label>GST (%)</label>
+<input id="gst" type="number" value="9">
+
+<label>Tip (%)</label>
+<input id="tip" type="number" value="0">
+
+<h2>Results</h2>
+<button onclick="calculate()">Calculate</button>
+<button onclick="exportPDF()">Export PDF</button>
+<div id="results"></div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<script>
+// (JS content unchanged)
+
+let people = JSON.parse(localStorage.getItem("people")) || [];
+let items = JSON.parse(localStorage.getItem("items")) || [];
+let editIndex = null;
+
+function save(){ localStorage.setItem("people",JSON.stringify(people)); localStorage.setItem("items",JSON.stringify(items)); }
+
+function addPerson(){
+  let name = document.getElementById("personName").value.trim();
+  if(!name) return;
+  people.push(name);
+  document.getElementById("personName").value="";
+  save(); render();
+}
+
+function editPerson(i){
+  let name = prompt("Edit name", people[i]);
+  if(name){ people[i]=name; save(); render(); }
+}
+
+function deletePerson(index){
+  people.splice(index,1);
+
+  items = items.map(item=>{
+    let assigned = item.assigned
+      .filter(i=>i!==index)
+      .map(i=> i>index ? i-1 : i);
+
+    return {...item,assigned};
+  }).filter(item=>item.assigned.length>0);
+
+  save(); render();
+}
+
+function render(){
+  let pList=document.getElementById("peopleList");
+  let assign=document.getElementById("assignPeople");
+
+  pList.innerHTML="";
+  assign.innerHTML="<p>Assign to:</p>";
+
+  people.forEach((p,i)=>{
+    pList.innerHTML+=`
+      <div class="person">
+        ${p}
+        <div>
+          <button class="edit-btn" onclick="editPerson(${i})">Edit</button>
+          <button class="delete-btn" onclick="deletePerson(${i})">X</button>
+        </div>
+      </div>
+    `;
+
+    assign.innerHTML+=`
+      <label><input type="checkbox" value="${i}"> ${p}</label>
+    `;
+  });
+
+  renderItems();
+}
+
+function selectAll(){
+  document.querySelectorAll("#assignPeople input").forEach(cb=>cb.checked=true);
+}
+
+function saveItem(){
+  let name=document.getElementById("itemName").value.trim();
+  let price=parseFloat(document.getElementById("itemPrice").value);
+
+  let checked=document.querySelectorAll("#assignPeople input:checked");
+  let assigned=[];
+  checked.forEach(cb=>assigned.push(parseInt(cb.value)));
+
+  if(!name||!price||assigned.length===0) return;
+
+  if(editIndex!==null){
+    items[editIndex]={name,price,assigned};
+    editIndex=null;
+  } else {
+    items.push({name,price,assigned});
+  }
+
+  document.getElementById("itemName").value="";
+  document.getElementById("itemPrice").value="";
+  document.querySelectorAll("#assignPeople input").forEach(cb=>cb.checked=false);
+
+  save(); render();
+}
+
+function editItem(i){
+  let item=items[i];
+  editIndex=i;
+
+  document.getElementById("itemName").value=item.name;
+  document.getElementById("itemPrice").value=item.price;
+
+  document.querySelectorAll("#assignPeople input").forEach(cb=>{
+    cb.checked=item.assigned.includes(parseInt(cb.value));
+  });
+}
+
+function deleteItem(i){
+  items.splice(i,1);
+  save(); render();
+}
+
+function renderItems(){
+  let list=document.getElementById("itemsList");
+  list.innerHTML="";
+
+  items.forEach((item,i)=>{
+    let names=item.assigned.map(x=>people[x]).join(", ");
+    list.innerHTML+=`
+      <div class="item">
+        <span>${item.name} - $${item.price} (${names})</span>
+        <div>
+          <button class="edit-btn" onclick="editItem(${i})">Edit</button>
+          <button class="delete-btn" onclick="deleteItem(${i})">X</button>
+        </div>
+      </div>
+    `;
+  });
+}
+
+function calculate(){
+  let totals=new Array(people.length).fill(0);
+
+  items.forEach(item=>{
+    let split=item.price/item.assigned.length;
+    item.assigned.forEach(i=>totals[i]+=split);
+  });
+
+  let service=parseFloat(document.getElementById("service").value)||0;
+  let gst=parseFloat(document.getElementById("gst").value)||0;
+  let tip=parseFloat(document.getElementById("tip").value)||0;
+
+  let results=document.getElementById("results");
+  results.innerHTML="";
+
+  totals.forEach((t,i)=>{
+    let serviceAmt=t*service/100;
+    let gstAmt=(t+serviceAmt)*gst/100;
+    let tipAmt=(t+serviceAmt+gstAmt)*tip/100;
+
+    let final=t+serviceAmt+gstAmt+tipAmt;
+
+    results.innerHTML+=`
+      <div class="result-box">
+        <strong>${people[i]}</strong><br>
+        Subtotal: $${t.toFixed(2)}<br>
+        Service: $${serviceAmt.toFixed(2)}<br>
+        GST: $${gstAmt.toFixed(2)}<br>
+        Tip: $${tipAmt.toFixed(2)}<br>
+        <strong>Total: $${final.toFixed(2)}</strong>
+      </div>
+    `;
+  });
+}
+
+function exportPDF(){
+  calculate();
+
+  const { jsPDF } = window.jspdf;
+  let doc=new jsPDF();
+
+  let y=10;
+  doc.text("Bill Split Summary",10,y);
+  y+=10;
+
+  document.querySelectorAll(".result-box").forEach(box=>{
+    doc.text(box.innerText,10,y);
+    y+=30;
+  });
+
+  doc.save("bill_split.pdf");
+}
+
+render();
+</script>
+
+</body>
+</html>
